@@ -6,6 +6,8 @@ import sys
 
 import pygame
 
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 
 WIDTH = 800
 HEIGHT = 600
@@ -22,8 +24,19 @@ RED = (230, 80, 70)
 ORANGE = (240, 160, 65)
 GREEN = (80, 190, 100)
 
-COMMANDS = ["たたかう", "まもる"]
+# 味方が選べるコマンド一覧
+COMMANDS = [
+    "たたかう",
+    "まもる",
+    "おにび",
+    "はねやすめ",
+    "ブレイズキック",
+]
 PLAYER_IMAGE_SIZE = (96, 96)
+
+# 追加技で使う数値
+BURN_DAMAGE = 5
+ROOST_HEAL = 30
 
 
 class Monster:
@@ -41,6 +54,14 @@ class Monster:
         self.hp -= damage
         if self.hp < 0:
             self.hp = 0
+
+    def heal(self, heal_point):
+        """HPを回復し、実際に回復した量を返す。"""
+        old_hp = self.hp
+        self.hp += heal_point
+        if self.hp > self.max_hp:
+            self.hp = self.max_hp
+        return self.hp - old_hp
 
 
 def create_new_battle():
@@ -126,20 +147,20 @@ def draw_characters(screen, player_image):
 
 def draw_commands(screen, selected_command, font):
     """コマンド一覧を描画する。"""
-    pygame.draw.rect(screen, PANEL_COLOR, (500, 420, 260, 105))
-    pygame.draw.rect(screen, PANEL_EDGE, (500, 420, 260, 105), 3)
+    pygame.draw.rect(screen, PANEL_COLOR, (500, 405, 260, 165))
+    pygame.draw.rect(screen, PANEL_EDGE, (500, 405, 260, 165), 3)
 
     for i, command in enumerate(COMMANDS):
-        y = 438 + i * 38
+        y = 418 + i * 29
         cursor = ">" if i == selected_command else " "
         draw_text(screen, f"{cursor} {command}", font, BLACK, 525, y)
 
 
 def draw_message_box(screen, message, font):
     """現在のメッセージを表示する。"""
-    pygame.draw.rect(screen, PANEL_COLOR, (40, 420, 430, 140))
-    pygame.draw.rect(screen, PANEL_EDGE, (40, 420, 430, 140), 3)
-    draw_multiline_text(screen, message, font, BLACK, 60, 438, 28)
+    pygame.draw.rect(screen, PANEL_COLOR, (40, 415, 430, 165))
+    pygame.draw.rect(screen, PANEL_EDGE, (40, 415, 430, 165), 3)
+    draw_multiline_text(screen, message, font, BLACK, 60, 428, 24)
 
 
 def draw_battle_screen(
@@ -166,20 +187,75 @@ def draw_clear_screen(screen, large_font, font):
     draw_text(screen, "Enterキーで終了", font, BLACK, 305, 330)
 
 
-def player_action(command, player, enemy, is_protecting):
+def player_action(command, player, enemy, enemy_is_burned, used_protect_last_turn):
     """プレイヤーが選んだコマンドを処理する。"""
+    is_protecting = False
+
     if command == "たたかう":
         damage = random.randint(player.attack - 4, player.attack + 4)
         enemy.take_damage(damage)
         message = f"{player.name}の こうげき！\n敵に {damage} ダメージ！"
-        return message, is_protecting
+        used_protect_last_turn = False
+        return message, is_protecting, enemy_is_burned, used_protect_last_turn
 
     if command == "まもる":
-        is_protecting = True
-        message = f"{player.name}は まもりを固めた！"
-        return message, is_protecting
+        # 連続でまもるを使ったときだけ、成功率を1/3にする
+        if used_protect_last_turn:
+            is_protecting = random.randint(1, 3) == 1
+        else:
+            is_protecting = True
 
-    return "コマンドを選んでください。", is_protecting
+        used_protect_last_turn = True
+        if is_protecting:
+            message = f"{player.name}は まもりを固めた！"
+        else:
+            message = f"{player.name}の まもるは失敗した！"
+        return message, is_protecting, enemy_is_burned, used_protect_last_turn
+
+    if command == "おにび":
+        # おにびは命中率100%。敵をやけど状態にする
+        used_protect_last_turn = False
+        if enemy_is_burned:
+            message = "敵は すでにやけどしている！"
+        else:
+            enemy_is_burned = True
+            message = f"{player.name}の おにび！\n敵は やけどした！"
+        return message, is_protecting, enemy_is_burned, used_protect_last_turn
+
+    if command == "はねやすめ":
+        # HPが満タンでなければ、最大HPを超えないように回復する
+        used_protect_last_turn = False
+        if player.hp == player.max_hp:
+            message = f"{player.name}のHPは満タン！"
+        else:
+            heal_point = player.heal(ROOST_HEAL)
+            message = f"{player.name}は はねやすめした！\nHPが {heal_point} 回復した！"
+        return message, is_protecting, enemy_is_burned, used_protect_last_turn
+
+    if command == "ブレイズキック":
+        # ブレイズキックは通常攻撃より大きいダメージを与える
+        damage = random.randint(25, 35)
+        enemy.take_damage(damage)
+        message = f"{player.name}の ブレイズキック！\n敵に {damage} ダメージ！"
+        used_protect_last_turn = False
+        return message, is_protecting, enemy_is_burned, used_protect_last_turn
+
+    used_protect_last_turn = False
+    return (
+        "コマンドを選んでください。",
+        is_protecting,
+        enemy_is_burned,
+        used_protect_last_turn,
+    )
+
+
+def apply_burn_damage(enemy, enemy_is_burned):
+    """やけど状態の敵に固定ダメージを与える。"""
+    if not enemy_is_burned:
+        return ""
+
+    enemy.take_damage(BURN_DAMAGE)
+    return f"敵はやけどで {BURN_DAMAGE} ダメージ！"
 
 
 def enemy_action(player, is_protecting):
@@ -192,8 +268,9 @@ def enemy_action(player, is_protecting):
         damage = random.randint(22, 30)
 
     if is_protecting:
-        damage = damage // 2
-        message = f"敵の{enemy_move}！\nまもりで半分にした！\n{damage} ダメージ受けた。"
+        # まもる成功時は敵の攻撃をすべて防ぐ
+        damage = 0
+        message = f"敵の{enemy_move}！\nまもるで攻撃をふせいだ！"
     else:
         message = f"敵の{enemy_move}！\n{damage} ダメージ受けた。"
 
@@ -219,6 +296,10 @@ def main():
     message = "コマンドを選んでください。"
     is_protecting = False
 
+    # 追加技用の状態管理
+    enemy_is_burned = False
+    used_protect_last_turn = False
+
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -235,19 +316,35 @@ def main():
                     selected_command = (selected_command + 1) % len(COMMANDS)
                 elif event.key == pygame.K_RETURN:
                     command = COMMANDS[selected_command]
-                    message, is_protecting = player_action(
-                        command, player, enemy, is_protecting
+                    message, is_protecting, enemy_is_burned, used_protect_last_turn = (
+                        player_action(
+                            command,
+                            player,
+                            enemy,
+                            enemy_is_burned,
+                            used_protect_last_turn,
+                        )
                     )
 
                     if enemy.hp <= 0:
                         game_state = "clear"
                     else:
-                        enemy_message, is_protecting = enemy_action(player, is_protecting)
-                        message = message + "\n" + enemy_message
+                        # やけど中の敵は、プレイヤー行動後に固定ダメージを受ける
+                        burn_message = apply_burn_damage(enemy, enemy_is_burned)
+                        if burn_message != "":
+                            message = message + "\n" + burn_message
 
-                        if player.hp <= 0:
-                            game_state = "lose"
-                            message = message + "\n負けました。Enterキーで終了"
+                        if enemy.hp <= 0:
+                            game_state = "clear"
+                        else:
+                            enemy_message, is_protecting = enemy_action(
+                                player, is_protecting
+                            )
+                            message = message + "\n" + enemy_message
+
+                            if player.hp <= 0:
+                                game_state = "lose"
+                                message = message + "\n負けました。Enterキーで終了"
 
             elif game_state in ["clear", "lose"] and event.key == pygame.K_RETURN:
                 pygame.quit()
