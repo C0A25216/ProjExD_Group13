@@ -5,6 +5,7 @@ import random
 import sys
 
 import pygame
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 
 WIDTH = 800
@@ -22,7 +23,7 @@ RED = (230, 80, 70)
 ORANGE = (240, 160, 65)
 GREEN = (80, 190, 100)
 
-COMMANDS = ["たたかう", "まもる"]
+COMMANDS = ["たたかう", "まもる","メガシンカ"] #メガシンカ追加
 PLAYER_IMAGE_SIZE = (96, 96)
 
 
@@ -41,6 +42,8 @@ class Monster:
         self.hp -= damage
         if self.hp < 0:
             self.hp = 0
+
+    
 
 
 def create_new_battle():
@@ -68,6 +71,22 @@ def load_player_image():
     image = pygame.transform.flip(image, True, False)
     return image
 
+#メガシンカ画像読み込み
+def load_image(filename, size=PLAYER_IMAGE_SIZE, flip=True):
+    """figフォルダから画像を読み込む。"""
+    image_path = os.path.join(os.path.dirname(__file__), "fig", filename)
+
+    try:
+        image = pygame.image.load(image_path).convert_alpha()
+    except (FileNotFoundError, pygame.error):
+        return None
+
+    image = pygame.transform.smoothscale(image, size)
+
+    if flip:
+        image = pygame.transform.flip(image, True, False)
+
+    return image
 
 def draw_text(screen, text, font, color, x, y):
     """文字を1行だけ描画する。"""
@@ -124,15 +143,22 @@ def draw_characters(screen, player_image):
         screen.blit(player_image, (150, 315))
 
 
-def draw_commands(screen, selected_command, font):
+def draw_commands(screen, selected_command, font, is_mega):
     """コマンド一覧を描画する。"""
-    pygame.draw.rect(screen, PANEL_COLOR, (500, 420, 260, 105))
-    pygame.draw.rect(screen, PANEL_EDGE, (500, 420, 260, 105), 3)
+    pygame.draw.rect(screen, PANEL_COLOR, (500, 420, 260, 145))
+    pygame.draw.rect(screen, PANEL_EDGE, (500, 420, 260, 145), 3)
 
     for i, command in enumerate(COMMANDS):
         y = 438 + i * 38
         cursor = ">" if i == selected_command else " "
-        draw_text(screen, f"{cursor} {command}", font, BLACK, 525, y)
+
+        # メガシンカ済みなら灰色表示
+        if command == "メガシンカ" and is_mega:
+            color = (150, 150, 150)
+        else:
+            color = BLACK
+
+        draw_text(screen, f"{cursor} {command}", font, color, 525, y)
 
 
 def draw_message_box(screen, message, font):
@@ -143,7 +169,7 @@ def draw_message_box(screen, message, font):
 
 
 def draw_battle_screen(
-    screen, player, enemy, selected_command, message, font, player_image
+    screen, player, enemy, selected_command, message, font, player_image, is_mega
 ):
     """バトル画面を描画する。"""
     screen.fill(SKY_BLUE)
@@ -155,7 +181,7 @@ def draw_battle_screen(
     draw_status_panel(screen, player, 490, 305, font)
     draw_characters(screen, player_image)
     draw_message_box(screen, message, font)
-    draw_commands(screen, selected_command, font)
+    draw_commands(screen, selected_command, font, is_mega)
 
 
 def draw_clear_screen(screen, large_font, font):
@@ -166,23 +192,33 @@ def draw_clear_screen(screen, large_font, font):
     draw_text(screen, "Enterキーで終了", font, BLACK, 305, 330)
 
 
-def player_action(command, player, enemy, is_protecting):
+def player_action(command, player, enemy, is_protecting, is_mega):
     """プレイヤーが選んだコマンドを処理する。"""
     if command == "たたかう":
         damage = random.randint(player.attack - 4, player.attack + 4)
         enemy.take_damage(damage)
         message = f"{player.name}の こうげき！\n敵に {damage} ダメージ！"
-        return message, is_protecting
+        return message, is_protecting, is_mega
 
     if command == "まもる":
         is_protecting = True
         message = f"{player.name}は まもりを固めた！"
-        return message, is_protecting
+        return message, is_protecting, is_mega
+    
+    if command == "メガシンカ":
+        if is_mega:
+            return "すでにメガシンカしている！", is_protecting, is_mega
 
-    return "コマンドを選んでください。", is_protecting
+        player.attack += 10
+        is_mega = True
+
+        return "こうかとんは メガシンカした！", is_protecting, is_mega
 
 
-def enemy_action(player, is_protecting):
+    return "コマンドを選んでください。", is_protecting, is_mega
+
+
+def enemy_action(player, is_protecting, is_mega):
     """敵が通常攻撃か強攻撃をランダムで選んで行動する。"""
     enemy_move = random.choice(["通常攻撃", "強攻撃"])
 
@@ -191,12 +227,17 @@ def enemy_action(player, is_protecting):
     else:
         damage = random.randint(22, 30)
 
+    # メガシンカならダメージ軽減
+    if is_mega:
+        damage = int(damage * 0.7)
+
     if is_protecting:
         damage = damage // 2
         message = f"敵の{enemy_move}！\nまもりで半分にした！\n{damage} ダメージ受けた。"
     else:
         message = f"敵の{enemy_move}！\n{damage} ダメージ受けた。"
 
+    
     player.take_damage(damage)
     is_protecting = False
     return message, is_protecting
@@ -212,8 +253,11 @@ def main():
     font = make_font(24)
     large_font = make_font(42)
     player_image = load_player_image()
+    mega_effect_image = load_image("mega.jpg", (180, 120), False)
+    mega_player_image = load_image("megakoukaton.png")
 
     player, enemy = create_new_battle()
+    is_mega =False
     game_state = "battle"
     selected_command = 0
     message = "コマンドを選んでください。"
@@ -234,15 +278,30 @@ def main():
                 elif event.key == pygame.K_DOWN:
                     selected_command = (selected_command + 1) % len(COMMANDS)
                 elif event.key == pygame.K_RETURN:
+                    if is_mega and COMMANDS[selected_command] == "メガシンカ":
+                        continue
                     command = COMMANDS[selected_command]
-                    message, is_protecting = player_action(
-                        command, player, enemy, is_protecting
-                    )
+                    message, is_protecting, is_mega = player_action(
+                        command, player, enemy, is_protecting, is_mega
+                    )   
+                    if command == "メガシンカ" and is_mega:
+                        if mega_effect_image is not None:
+                            draw_battle_screen(
+                                screen, player, enemy, selected_command,
+                                "こうかとんは メガシンカした！",
+                                font, player_image, is_mega
+                            )
+                            screen.blit(mega_effect_image, (110, 300))
+                            pygame.display.update()
+                            pygame.time.wait(1000)
+
+                        if mega_player_image is not None:
+                            player_image = mega_player_image
 
                     if enemy.hp <= 0:
                         game_state = "clear"
                     else:
-                        enemy_message, is_protecting = enemy_action(player, is_protecting)
+                        enemy_message, is_protecting = enemy_action(player, is_protecting, is_mega)
                         message = message + "\n" + enemy_message
 
                         if player.hp <= 0:
@@ -255,7 +314,7 @@ def main():
 
         if game_state in ["battle", "lose"]:
             draw_battle_screen(
-                screen, player, enemy, selected_command, message, font, player_image
+                screen, player, enemy, selected_command, message, font, player_image, is_mega
             )
         elif game_state == "clear":
             draw_clear_screen(screen, large_font, font)
