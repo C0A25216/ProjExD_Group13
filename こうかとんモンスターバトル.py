@@ -14,6 +14,7 @@ HEIGHT = 600
 FPS = 60
 
 BLACK = (30, 30, 30)
+WHITE = (255, 255, 255)# 追加
 SKY_BLUE = (190, 225, 245)
 GRASS_GREEN = (95, 180, 105)
 PANEL_COLOR = (250, 248, 230)
@@ -89,6 +90,21 @@ def load_player_image():
     image = pygame.transform.flip(image, True, False)
     return image
 
+# 負け画像の読み込み
+def load_lose_image():
+    """figフォルダの画像を読み込み、画面サイズに合わせて返す。"""
+    image_path = os.path.join(os.path.dirname(__file__), "fig", "lose.jpg")
+
+    try:
+        # 画像の読み込みのみを行う
+        image = pygame.image.load(image_path).convert()
+    except (FileNotFoundError, pygame.error):
+        # 読み込みに失敗した場合は None を返す
+        return None
+
+    # 読み込み成功後、画面サイズに合わせてリサイズする
+    image = pygame.transform.smoothscale(image, (WIDTH, HEIGHT))
+    return image
 
 def draw_text(screen, text, font, color, x, y):
     """文字を1行だけ描画する。"""
@@ -176,7 +192,11 @@ def draw_battle_screen(
     draw_status_panel(screen, player, 490, 305, font)
     draw_characters(screen, player_image)
     draw_message_box(screen, message, font)
-    draw_commands(screen, selected_command, font)
+   
+
+    #最初のメッセージが出ている間はコマンドを出さない
+    if message != "野生のモンスターがあらわれた！":
+        draw_commands(screen, selected_command, font)
 
 
 def draw_clear_screen(screen, large_font, font):
@@ -186,6 +206,40 @@ def draw_clear_screen(screen, large_font, font):
     draw_text(screen, "ゲームクリア！", large_font, BLACK, 255, 220)
     draw_text(screen, "Enterキーで終了", font, BLACK, 305, 330)
 
+#ゲームオーバー画面の描画
+def draw_lose_screen(screen, lose_image, large_font, font):
+    """負けた時の画面を描画する。"""
+    if lose_image:
+        screen.blit(lose_image, (0, 0))
+    else:
+        screen.fill(BLACK)
+    
+    # 背景が明るい場合でも文字が見えるように半透明の帯を引く
+    overlay = pygame.Surface((WIDTH, 120))
+    overlay.set_alpha(160)
+    overlay.fill(BLACK)
+    screen.blit(overlay, (0, 220))
+
+    draw_text(screen, "こうかとん は 丸焼きに されてしまった...", font, WHITE, 180, 240)
+    draw_text(screen, "GAME OVER", large_font, RED, 280, 280)
+    draw_text(screen, "Enterキーで終了", font, WHITE, 310, 350)
+
+# タイトル画面の描画処理
+def draw_title_screen(screen, large_font, font):
+    """タイトル画面を描画する。"""
+    screen.fill(SKY_BLUE)
+    pygame.draw.rect(screen, GRASS_GREEN, (0, 420, WIDTH, 180))
+    # タイトルの描画（中央寄せ）
+    title_text = "こうかとんモンスターバトル"
+    title_img = large_font.render(title_text, True, BLACK)
+    title_rect = title_img.get_rect(center=(WIDTH // 2, 200))
+    screen.blit(title_img, title_rect)
+    # 案内の描画（中央寄せ）
+    info_text = "Enterキーで はじめる"
+    info_img = font.render(info_text, True, BLACK)
+    info_rect = info_img.get_rect(center=(WIDTH // 2, 350))
+    screen.blit(info_img, info_rect)
+    
 
 def player_action(
     command: str,
@@ -295,11 +349,14 @@ def main():
     font = make_font(24)
     large_font = make_font(42)
     player_image = load_player_image()
+    lose_image = load_lose_image() # 追加：負け画像のロード
 
     player, enemy = create_new_battle()
-    game_state = "battle"
+    # 変更点：初期状態を「title」にする
+    game_state = "title"
+    # 暴発防止のため、最初は「あらわれた！」というメッセージにする
+    message = "野生のモンスターがあらわれた！"
     selected_command = 0
-    message = "コマンドを選んでください。"
     is_protecting = False
 
     # 追加技用の状態管理
@@ -314,12 +371,26 @@ def main():
 
             if event.type != pygame.KEYDOWN:
                 continue
+            
+            # タイトル画面での操作を追加
+            if game_state == "title":
+                if event.key == pygame.K_RETURN:
+                    game_state = "battle"
 
-            if game_state == "battle":
+
+
+
+            elif game_state == "battle":
+                # コマンド選択ができるのは、最初のメッセージが終わった後だけにする
+                if message == "野生のモンスターがあらわれた！":
+                    if event.key == pygame.K_RETURN:
+                        message = "コマンドを選んでください。"
+                    continue    
                 if event.key == pygame.K_UP:
-                    selected_command = (selected_command - 1) % len(COMMANDS)
+                        selected_command = (selected_command - 1) % len(COMMANDS)
                 elif event.key == pygame.K_DOWN:
-                    selected_command = (selected_command + 1) % len(COMMANDS)
+                        selected_command = (selected_command + 1) % len(COMMANDS)
+
                 elif event.key == pygame.K_RETURN:
                     command = COMMANDS[selected_command]
                     message, is_protecting, enemy_is_burned, used_protect_last_turn = (
@@ -329,39 +400,53 @@ def main():
                             enemy,
                             enemy_is_burned,
                             used_protect_last_turn,
-                        )
-                    )
+                        )    
+                    )    
+                    turn_messages = [message]
+                
+                
 
                     if enemy.hp <= 0:
+                        message = "\n".join(turn_messages)
                         game_state = "clear"
-                    else:
-                        # やけど中の敵は、プレイヤー行動後に固定ダメージを受ける
-                        burn_message = apply_burn_damage(enemy, enemy_is_burned)
-                        if burn_message != "":
-                            message = message + "\n" + burn_message
+                        continue
+                    
+                    # やけど中の敵は、プレイヤー行動後に固定ダメージを受ける
+                    burn_message = apply_burn_damage(enemy, enemy_is_burned)
+                    if burn_message != "":
+                        message = message + "\n" + burn_message
 
-                        if enemy.hp <= 0:
-                            game_state = "clear"
-                        else:
-                            enemy_message, is_protecting = enemy_action(
-                                player, is_protecting
-                            )
-                            message = message + "\n" + enemy_message
 
-                            if player.hp <= 0:
-                                game_state = "lose"
-                                message = message + "\n負けました。Enterキーで終了"
+                    if enemy.hp <= 0:
+                        message = "\n".join(turn_messages)
+                        game_state = "clear"
+                        continue
+                    
+                    enemy_message, is_protecting = enemy_action(player, is_protecting)
+                    turn_messages.append(enemy_message)
+                    message = "\n".join(turn_messages)
+
+                    if player.hp <= 0:
+                        game_state = "lose"
+                                
+
+
 
             elif game_state in ["clear", "lose"] and event.key == pygame.K_RETURN:
                 pygame.quit()
                 sys.exit()
 
-        if game_state in ["battle", "lose"]:
+        # 描画部分の切り替え
+        if game_state == "title":# タイトル画面の描画
+            draw_title_screen(screen, large_font, font)
+        elif game_state == "battle":
             draw_battle_screen(
                 screen, player, enemy, selected_command, message, font, player_image
             )
         elif game_state == "clear":
             draw_clear_screen(screen, large_font, font)
+        elif game_state == "lose": #負け画面の描画
+            draw_lose_screen(screen, lose_image, large_font, font)
 
         pygame.display.update()
         clock.tick(FPS)
