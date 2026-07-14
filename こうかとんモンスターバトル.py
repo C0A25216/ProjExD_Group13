@@ -5,7 +5,6 @@ import random
 import sys
 
 import pygame
-
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -14,7 +13,7 @@ HEIGHT = 600
 FPS = 60
 
 BLACK = (30, 30, 30)
-WHITE = (255, 255, 255)# 追加
+WHITE = (255, 255, 255)
 SKY_BLUE = (190, 225, 245)
 GRASS_GREEN = (95, 180, 105)
 PANEL_COLOR = (250, 248, 230)
@@ -32,7 +31,8 @@ COMMANDS = [
     "おにび",
     "はねやすめ",
     "ブレイズキック",
-]
+    "メガシンカ"
+    ]
 PLAYER_IMAGE_SIZE = (96, 96)
 
 # 追加技で使う数値
@@ -105,6 +105,22 @@ def load_lose_image():
     # 読み込み成功後、画面サイズに合わせてリサイズする
     image = pygame.transform.smoothscale(image, (WIDTH, HEIGHT))
     return image
+#メガシンカ画像読み込み
+def load_image(filename, size=PLAYER_IMAGE_SIZE, flip=True):
+    """figフォルダから画像を読み込む。"""
+    image_path = os.path.join(os.path.dirname(__file__), "fig", filename)
+
+    try:
+        image = pygame.image.load(image_path).convert_alpha()
+    except (FileNotFoundError, pygame.error):
+        return None
+
+    image = pygame.transform.smoothscale(image, size)
+
+    if flip:
+        image = pygame.transform.flip(image, True, False)
+
+    return image
 
 def draw_text(screen, text, font, color, x, y):
     """文字を1行だけ描画する。"""
@@ -161,26 +177,33 @@ def draw_characters(screen, player_image):
         screen.blit(player_image, (150, 315))
 
 
-def draw_commands(screen, selected_command, font):
+def draw_commands(screen, selected_command, font, is_mega):
     """コマンド一覧を描画する。"""
-    pygame.draw.rect(screen, PANEL_COLOR, (500, 405, 260, 165))
-    pygame.draw.rect(screen, PANEL_EDGE, (500, 405, 260, 165), 3)
+    pygame.draw.rect(screen, PANEL_COLOR, (500, 405, 260, 175))
+    pygame.draw.rect(screen, PANEL_EDGE, (500, 405, 260, 175), 3)
 
     for i, command in enumerate(COMMANDS):
-        y = 418 + i * 29
+        y = 414 + i * 27
         cursor = ">" if i == selected_command else " "
-        draw_text(screen, f"{cursor} {command}", font, BLACK, 525, y)
 
+        if command == "メガシンカ" and is_mega:
+            color = (150, 150, 150)
+        else:
+            color = BLACK
+
+        draw_text(screen, f"{cursor} {command}", font, color, 515, y)
+
+    
 
 def draw_message_box(screen, message, font):
     """現在のメッセージを表示する。"""
-    pygame.draw.rect(screen, PANEL_COLOR, (40, 415, 430, 165))
-    pygame.draw.rect(screen, PANEL_EDGE, (40, 415, 430, 165), 3)
-    draw_multiline_text(screen, message, font, BLACK, 60, 428, 24)
+    pygame.draw.rect(screen, PANEL_COLOR, (40, 420, 430, 180))
+    pygame.draw.rect(screen, PANEL_EDGE, (40, 420, 430, 180), 3)
+    draw_multiline_text(screen, message, font, BLACK, 60, 438, 28)
 
 
 def draw_battle_screen(
-    screen, player, enemy, selected_command, message, font, player_image
+    screen, player, enemy, selected_command, message, font, player_image, is_mega
 ):
     """バトル画面を描画する。"""
     screen.fill(SKY_BLUE)
@@ -196,7 +219,7 @@ def draw_battle_screen(
 
     #最初のメッセージが出ている間はコマンドを出さない
     if message != "野生のモンスターがあらわれた！":
-        draw_commands(screen, selected_command, font)
+        draw_commands(screen, selected_command, font,  is_mega)
 
 
 def draw_clear_screen(screen, large_font, font):
@@ -246,8 +269,9 @@ def player_action(
     player: Monster,
     enemy: Monster,
     enemy_is_burned: bool,
-    used_protect_last_turn: bool
-) -> tuple[str, bool, bool, bool]:
+    used_protect_last_turn: bool,
+    is_mega: bool,
+) -> tuple[str, bool, bool, bool, bool]:
     """プレイヤーが選んだコマンドを処理する。"""
     is_protecting = False
 
@@ -256,7 +280,7 @@ def player_action(
         enemy.take_damage(damage)
         message = f"{player.name}の こうげき！\n敵に {damage} ダメージ！"
         used_protect_last_turn = False
-        return message, is_protecting, enemy_is_burned, used_protect_last_turn
+        return message, is_protecting, enemy_is_burned, used_protect_last_turn, is_mega
 
     if command == "まもる":
         # 連続でまもるを使ったときだけ、成功率を1/3にする
@@ -270,7 +294,7 @@ def player_action(
             message = f"{player.name}は まもりを固めた！"
         else:
             message = f"{player.name}の まもるは失敗した！"
-        return message, is_protecting, enemy_is_burned, used_protect_last_turn
+        return message, is_protecting, enemy_is_burned, used_protect_last_turn, is_mega
 
     if command == "おにび":
         # おにびは命中率100%。敵をやけど状態にする
@@ -280,7 +304,7 @@ def player_action(
         else:
             enemy_is_burned = True
             message = f"{player.name}の おにび！\n敵は やけどした！"
-        return message, is_protecting, enemy_is_burned, used_protect_last_turn
+        return message, is_protecting, enemy_is_burned, used_protect_last_turn, is_mega
 
     if command == "はねやすめ":
         # HPが満タンでなければ、最大HPを超えないように回復する
@@ -290,7 +314,7 @@ def player_action(
         else:
             heal_point = player.heal(ROOST_HEAL)
             message = f"{player.name}は はねやすめした！\nHPが {heal_point} 回復した！"
-        return message, is_protecting, enemy_is_burned, used_protect_last_turn
+        return message, is_protecting, enemy_is_burned, used_protect_last_turn, is_mega
 
     if command == "ブレイズキック":
         # ブレイズキックは通常攻撃より大きいダメージを与える
@@ -298,15 +322,26 @@ def player_action(
         enemy.take_damage(damage)
         message = f"{player.name}の ブレイズキック！\n敵に {damage} ダメージ！"
         used_protect_last_turn = False
-        return message, is_protecting, enemy_is_burned, used_protect_last_turn
+        return message, is_protecting, enemy_is_burned, used_protect_last_turn, is_mega
 
-    used_protect_last_turn = False
-    return (
-        "コマンドを選んでください。",
-        is_protecting,
-        enemy_is_burned,
-        used_protect_last_turn,
-    )
+    if command == "メガシンカ":
+        used_protect_last_turn = False
+
+        if is_mega:
+            message = "すでにメガシンカしている！"
+        else:
+            player.attack += 10
+            is_mega = True
+            message = "こうかとんは メガシンカした！"
+
+        return (
+            message,
+            is_protecting,
+            enemy_is_burned,
+            used_protect_last_turn,
+            is_mega,
+        )
+
 
 
 def apply_burn_damage(enemy: Monster, enemy_is_burned: bool) -> str:
@@ -318,8 +353,7 @@ def apply_burn_damage(enemy: Monster, enemy_is_burned: bool) -> str:
     return f"敵はやけどで {BURN_DAMAGE} ダメージ！"
 
 
-def enemy_action(player, is_protecting):
-    """敵が通常攻撃か強攻撃をランダムで選んで行動する。"""
+def enemy_action(player, is_protecting, is_mega):
     enemy_move = random.choice(["通常攻撃", "強攻撃"])
 
     if enemy_move == "通常攻撃":
@@ -327,41 +361,43 @@ def enemy_action(player, is_protecting):
     else:
         damage = random.randint(22, 30)
 
+    if is_mega:
+        damage = int(damage * 0.7)
+
     if is_protecting:
-        # まもる成功時は敵の攻撃をすべて防ぐ
         damage = 0
         message = f"敵の{enemy_move}！\nまもるで攻撃をふせいだ！"
     else:
         message = f"敵の{enemy_move}！\n{damage} ダメージ受けた。"
 
     player.take_damage(damage)
-    is_protecting = False
-    return message, is_protecting
+    return message, False
 
 
 def main():
     """ゲーム全体を動かすメイン関数。"""
     pygame.init()
+
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("ターン制モンスターバトル")
+    pygame.display.set_caption("こうかとんモンスターバトル")
     clock = pygame.time.Clock()
 
     font = make_font(24)
     large_font = make_font(42)
     player_image = load_player_image()
-    lose_image = load_lose_image() # 追加：負け画像のロード
+    lose_image = load_lose_image()
+    mega_effect_image = load_image("mega.jpg", (180, 120), False)
+    mega_player_image = load_image("megakoukaton.png")
 
     player, enemy = create_new_battle()
-    # 変更点：初期状態を「title」にする
+
     game_state = "title"
-    # 暴発防止のため、最初は「あらわれた！」というメッセージにする
     message = "野生のモンスターがあらわれた！"
     selected_command = 0
     is_protecting = False
-
-    # 追加技用の状態管理
     enemy_is_burned = False
     used_protect_last_turn = False
+    is_mega = False
 
     while True:
         for event in pygame.event.get():
@@ -392,42 +428,80 @@ def main():
                         selected_command = (selected_command + 1) % len(COMMANDS)
 
                 elif event.key == pygame.K_RETURN:
+                    if is_mega and COMMANDS[selected_command] == "メガシンカ":
+                        continue
+
                     command = COMMANDS[selected_command]
-                    message, is_protecting, enemy_is_burned, used_protect_last_turn = (
-                        player_action(
-                            command,
-                            player,
-                            enemy,
-                            enemy_is_burned,
-                            used_protect_last_turn,
-                        )    
-                    )    
+
+                    (
+                        message,
+                        is_protecting,
+                        enemy_is_burned,
+                        used_protect_last_turn,
+                        is_mega,
+                    ) = player_action(
+                        command,
+                        player,
+                        enemy,
+                        enemy_is_burned,
+                        used_protect_last_turn,
+                        is_mega,
+                    )
+
                     turn_messages = [message]
-                
-                
+
+                    if command == "メガシンカ" and is_mega:
+                        if mega_effect_image is not None:
+                            draw_battle_screen(
+                                screen,
+                                player,
+                                enemy,
+                                selected_command,
+                                "こうかとんは メガシンカした！",
+                                font,
+                                player_image,
+                                is_mega,
+                            )
+                            screen.blit(mega_effect_image, (110, 300))
+                            pygame.display.update()
+                            pygame.time.wait(1000)
+
+                        if mega_player_image is not None:
+                            player_image = mega_player_image
 
                     if enemy.hp <= 0:
-                        message = "\n".join(turn_messages)
                         game_state = "clear"
                         continue
-                    
-                    # やけど中の敵は、プレイヤー行動後に固定ダメージを受ける
+
                     burn_message = apply_burn_damage(enemy, enemy_is_burned)
-                    if burn_message != "":
-                        message = message + "\n" + burn_message
-
+                    if burn_message:
+                        turn_messages.append(burn_message)
 
                     if enemy.hp <= 0:
                         message = "\n".join(turn_messages)
                         game_state = "clear"
                         continue
-                    
-                    enemy_message, is_protecting = enemy_action(player, is_protecting)
+
+                    enemy_message, is_protecting = enemy_action(
+                        player,
+                        is_protecting,
+                        is_mega,
+                    )      
+
                     turn_messages.append(enemy_message)
                     message = "\n".join(turn_messages)
 
                     if player.hp <= 0:
                         game_state = "lose"
+                
+                
+
+                    if enemy.hp <= 0:
+                        message = "\n".join(turn_messages)
+                        game_state = "clear"
+                        continue
+                    
+                    
                                 
 
 
@@ -441,7 +515,7 @@ def main():
             draw_title_screen(screen, large_font, font)
         elif game_state == "battle":
             draw_battle_screen(
-                screen, player, enemy, selected_command, message, font, player_image
+                screen, player, enemy, selected_command, message, font, player_image,is_mega
             )
         elif game_state == "clear":
             draw_clear_screen(screen, large_font, font)
